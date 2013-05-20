@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define BAUDRATE B57600
 #define BAUDRATE_S "57600"
@@ -14,6 +15,8 @@
 #else
 #define MODEMDEVICE "/dev/com1"
 #endif /* linux */
+
+#define DEFAULT_DELAY 6000
 
 #define SLIP_END     0300
 #define SLIP_ESC     0333
@@ -41,7 +44,7 @@ static unsigned char rxbuf[2048];
 static int
 usage(int result)
 {
-  printf("Usage: serialdump [-x] [-s[on]] [-i] [-bSPEED] [SERIALDEVICE]\n");
+  printf("Usage: serialdump [-x] [-s[on]] [-i] [-dDELAY] [-bSPEED] [SERIALDEVICE]\n");
   printf("       -x for hexadecimal output\n");
   printf("       -i for decimal output\n");
   printf("       -s for automatic SLIP mode\n");
@@ -49,6 +52,7 @@ usage(int result)
   printf("       -sn to hide SLIP packages\n");
   printf("       -T[format] to add time for each text line\n");
   printf("         (see man page for strftime() for format description)\n");
+  printf("       -dDELAY delay in us between 2 consecutive writes (must be different from 0)\n");
   return result;
 }
 
@@ -93,6 +97,7 @@ int main(int argc, char **argv)
   unsigned char mode = MODE_START_TEXT;
   int nfound, flags = 0;
   unsigned char lastc = '\0';
+  int delay = DEFAULT_DELAY;
 
   int index = 1;
   while (index < argc) {
@@ -112,6 +117,21 @@ int main(int argc, char **argv)
 	} else if (strcmp(&argv[index][2], "115200") == 0) {
 	  speed = B115200;
 	  speedname = "115200";
+#ifdef B230400
+	} else if (strcmp(&argv[index][2], "230400") == 0) {
+	  speed = B230400;
+	  speedname = "230400";
+#endif
+#ifdef B460800
+	} else if (strcmp(&argv[index][2], "460800") == 0) {
+	  speed = B460800;
+	  speedname = "460800";
+#endif
+#ifdef B921600
+	} else if (strcmp(&argv[index][2], "921600") == 0) {
+	  speed = B921600;
+	  speedname = "921600";
+#endif
 	} else {
 	  fprintf(stderr, "unsupported speed: %s\n", &argv[index][2]);
 	  return usage(1);
@@ -144,6 +164,12 @@ int main(int argc, char **argv)
 	}
 	mode = MODE_START_DATE;
 	break;
+      case 'd':
+        delay = atoi(&argv[index][2]);
+        if(delay == 0){
+          return usage(1);
+        }
+        break;
       case 'h':
 	return usage(0);
       default:
@@ -161,11 +187,7 @@ int main(int argc, char **argv)
   }
   fprintf(stderr, "connecting to %s (%s)", device, speedname);
 
-#ifndef __APPLE__
-  fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY | O_DIRECT | O_SYNC );
-#else
   fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY | O_SYNC );
-#endif
   if (fd <0) {
     fprintf(stderr, "\n");
     perror(device);
@@ -249,7 +271,7 @@ int main(int argc, char **argv)
 	      exit(1);
 	    } else {
 	      fflush(NULL);
-	      usleep(6000);
+	      usleep(delay);
 	    }
 	  }
 	}
