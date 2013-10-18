@@ -8,8 +8,8 @@
 #include <string.h>
 #include <time.h>
 
-#define BAUDRATE B57600
-#define BAUDRATE_S "57600"
+#define DEFAULT_BAUDRATE 57600
+
 #ifdef linux
 #define MODEMDEVICE "/dev/ttyS0"
 #else
@@ -23,41 +23,48 @@
 #define SLIP_ESC_END 0334
 #define SLIP_ESC_ESC 0335
 
+static const unsigned char slipend = SLIP_END;
+
 #define CSNA_INIT 0x01
 
 #define BUFSIZE 40
 #define HCOLS 20
 #define ICOLS 18
 
-#define MODE_START_DATE	0
-#define MODE_DATE	1
-#define MODE_START_TEXT	2
-#define MODE_TEXT	3
-#define MODE_INT	4
-#define MODE_HEX	5
-#define MODE_SLIP_AUTO	6
-#define MODE_SLIP	7
-#define MODE_SLIP_HIDE	8
+enum {
+  MODE_START_DATE,
+  MODE_DATE,
+  MODE_START_TEXT,
+  MODE_TEXT,
+  MODE_INT,
+  MODE_HEX,
+  MODE_SLIP_AUTO,
+  MODE_SLIP,
+  MODE_SLIP_HIDE
+};
 
 static unsigned char rxbuf[2048];
 
 static int
-usage(int result)
+usage(const char *prog, int result)
 {
-  printf("Usage: serialdump [-x] [-s[on]] [-i] [-dDELAY] [-bSPEED] [SERIALDEVICE]\n");
-  printf("       -x for hexadecimal output\n");
-  printf("       -i for decimal output\n");
-  printf("       -s for automatic SLIP mode\n");
-  printf("       -so for SLIP only mode (all data is SLIP packets)\n");
-  printf("       -sn to hide SLIP packages\n");
-  printf("       -T[format] to add time for each text line\n");
-  printf("         (see man page for strftime() for format description)\n");
-  printf("       -dDELAY delay in us between 2 consecutive writes (must be different from 0)\n");
+  printf("Usage: %s [options] [SERIALDEVICE]\n", prog);
+  printf("  -B BAUDRATE (default 57600)\n");
+  printf("  -x for hexadecimal output\n");
+  printf("  -i for decimal output\n");
+  printf("  -s for automatic SLIP mode\n");
+  printf("  -so for SLIP only mode (all data is SLIP packets)\n");
+  printf("  -sn to hide SLIP packages\n");
+  printf("  -t to add time as msec for each text line\n");
+  printf("  -t0 to add time since start (msec) for each text line\n");
+  printf("  -T[FORMAT] to add time for each text line\n");
+  printf("    (see man page for strftime() for format description)\n");
+  printf("  -d DELAY  for delay in usec between 2 consecutive writes\n");
   return result;
 }
 
 static void
-print_hex_line(unsigned char *prefix, unsigned char *outbuf, int index)
+print_hex_line(char *prefix, unsigned char *outbuf, int index)
 {
   int i;
 
@@ -66,7 +73,7 @@ print_hex_line(unsigned char *prefix, unsigned char *outbuf, int index)
     if((i % 4) == 0) {
       printf(" ");
     }
-    printf("%02X", outbuf[i] & 0xFF);
+    printf("%02X", outbuf[i]);
   }
   printf("  ");
   for(i = index; i < HCOLS; i++) {
@@ -86,121 +93,159 @@ print_hex_line(unsigned char *prefix, unsigned char *outbuf, int index)
 
 int main(int argc, char **argv)
 {
+  const char *prog;
+  int c;
+  int fd;
   struct termios options;
   fd_set mask, smask;
-  int fd;
-  speed_t speed = BAUDRATE;
-  char *speedname = BAUDRATE_S;
+  unsigned int baudrate = DEFAULT_BAUDRATE;
+  speed_t speed;
   char *device = MODEMDEVICE;
   char *timeformat = NULL;
-  unsigned char buf[BUFSIZE], outbuf[HCOLS];
+  struct timeval start_tv;
+  int starttime = 0;
+  unsigned char buf[BUFSIZE];
+  char outbuf[HCOLS];
   unsigned char mode = MODE_START_TEXT;
-  int nfound, flags = 0;
+  int index, nfound, flags = 0;
   unsigned char lastc = '\0';
   int delay = DEFAULT_DELAY;
 
-  int index = 1;
-  while (index < argc) {
-    if (argv[index][0] == '-') {
-      switch(argv[index][1]) {
-      case 'b':
-	/* set speed */
-	if (strcmp(&argv[index][2], "38400") == 0) {
-	  speed = B38400;
-	  speedname = "38400";
-	} else if (strcmp(&argv[index][2], "19200") == 0) {
-	  speed = B19200;
-	  speedname = "19200";
-	} else if (strcmp(&argv[index][2], "57600") == 0) {
-	  speed = B57600;
-	  speedname = "57600";
-	} else if (strcmp(&argv[index][2], "115200") == 0) {
-	  speed = B115200;
-	  speedname = "115200";
-#ifdef B230400
-	} else if (strcmp(&argv[index][2], "230400") == 0) {
-	  speed = B230400;
-	  speedname = "230400";
-#endif
-#ifdef B460800
-	} else if (strcmp(&argv[index][2], "460800") == 0) {
-	  speed = B460800;
-	  speedname = "460800";
-#endif
-#ifdef B921600
-	} else if (strcmp(&argv[index][2], "921600") == 0) {
-	  speed = B921600;
-	  speedname = "921600";
-#endif
-	} else {
-	  fprintf(stderr, "unsupported speed: %s\n", &argv[index][2]);
-	  return usage(1);
-	}
-	break;
-      case 'x':
-	mode = MODE_HEX;
-	break;
-      case 'i':
-	mode = MODE_INT;
-	break;
-      case 's':
-	switch(argv[index][2]) {
-	case 'n':
-	  mode = MODE_SLIP_HIDE;
-	  break;
-	case 'o':
-	  mode = MODE_SLIP;
-	  break;
-	default:
-	  mode = MODE_SLIP_AUTO;
-	  break;
-	}
-	break;
-      case 'T':
-	if(strlen(&argv[index][2]) == 0) {
-	  timeformat = "%Y-%m-%d %H:%M:%S";
-	} else {
-	  timeformat = &argv[index][2];
-	}
-	mode = MODE_START_DATE;
-	break;
-      case 'd':
-        delay = atoi(&argv[index][2]);
-        if(delay == 0){
-          return usage(1);
+  prog = argv[0];
+  while((c = getopt(argc, argv, "b:B:xis::t::T::d:h")) != -1) {
+    switch(c) {
+    case 'b':
+    case 'B':
+      baudrate = atoi(optarg);
+      break;
+
+    case 'x':
+      mode = MODE_HEX;
+      break;
+    case 'i':
+      mode = MODE_INT;
+      break;
+    case 's':
+      mode = MODE_SLIP_AUTO;
+      if(optarg) {
+        switch(*optarg) {
+        case 'n':
+          mode = MODE_SLIP_HIDE;
+          break;
+        case 'o':
+          mode = MODE_SLIP;
+          break;
         }
-        break;
-      case 'h':
-	return usage(0);
-      default:
-	fprintf(stderr, "unknown option '%c'\n", argv[index][1]);
-	return usage(1);
       }
-      index++;
-    } else {
-      device = argv[index++];
-      if (index < argc) {
-	fprintf(stderr, "too many arguments\n");
-	return usage(1);
+      break;
+    case 't': {
+      struct timezone tz;
+      gettimeofday(&start_tv, &tz);
+      timeformat = NULL;
+      mode = MODE_START_DATE;
+      if(optarg && *optarg == '0') {
+        starttime = 1;
       }
+      break;
+    }
+    case 'T':
+      if(optarg) {
+        timeformat = optarg;
+      } else {
+        timeformat = "%Y-%m-%d %H:%M:%S";
+      }
+      mode = MODE_START_DATE;
+      break;
+    case 'd':
+      delay = atoi(optarg);
+      if(delay < 0){
+        fprintf(stderr, "Delay must not be negative\n");
+        return usage(prog, 1);
+      }
+      break;
+    case '?':
+    case 'h':
+      return usage(prog, 0);
+    default:
+      fprintf(stderr, "unknown option '%c'\n", c);
+      return usage(prog, 1);
     }
   }
-  fprintf(stderr, "connecting to %s (%s)", device, speedname);
+  argc -= optind - 1;
+  argv += optind - 1;
+
+  if(argc > 2) {
+    fprintf(stderr, "Too many arguments\n");
+    return usage(prog, 1);
+  }
+  if(argc == 2) {
+    device = argv[1];
+  }
+
+  switch(baudrate) {
+  case 9600:
+    speed = B9600;
+    break;
+  case 19200:
+    speed = B19200;
+    break;
+  case 38400:
+    speed = B38400;
+    break;
+  case 57600:
+    speed = B57600;
+    break;
+  case 115200:
+    speed = B115200;
+    break;
+#ifdef B230400
+  case 230400:
+    speed = B230400;
+    break;
+#elif defined(__APPLE__)
+  case 230400:
+    speed = 230400;
+    break;
+#endif
+#ifdef B460800
+  case 460800:
+    speed = B460800;
+    break;
+#elif defined(__APPLE__)
+  case 460800:
+    speed = 460800;
+    break;
+#endif
+#ifdef B921600
+  case 921600:
+    speed = B921600;
+    break;
+#elif defined(__APPLE__)
+  case 921600:
+    speed = 921600;
+    break;
+#endif
+  default:
+    fprintf(stderr, "unknown baudrate %u\n", baudrate);
+    return usage(prog, 1);
+  }
+
+  fprintf(stderr, "connecting to %s (%u)", device, baudrate);
 
   fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY | O_SYNC );
-  if (fd <0) {
+  if(fd <0) {
     fprintf(stderr, "\n");
     perror(device);
     exit(-1);
   }
   fprintf(stderr, " [OK]\n");
 
-  if (fcntl(fd, F_SETFL, 0) < 0) {
+  if(fcntl(fd, F_SETFL, 0) < 0) {
     perror("could not set fcntl");
     exit(-1);
   }
 
-  if (tcgetattr(fd, &options) < 0) {
+  if(tcgetattr(fd, &options) < 0) {
     perror("could not get options");
     exit(-1);
   }
@@ -219,13 +264,13 @@ int main(int argc, char **argv)
   /* Raw output */
   options.c_oflag &= ~OPOST;
 
-  if (tcsetattr(fd, TCSANOW, &options) < 0) {
+  if(tcsetattr(fd, TCSANOW, &options) < 0) {
     perror("could not set options");
     exit(-1);
   }
 
   /* Make read() return immediately */
-/*    if (fcntl(fd, F_SETFL, FNDELAY) < 0) { */
+/*    if(fcntl(fd, F_SETFL, FNDELAY) < 0) { */
 /*      perror("\ncould not set fcntl"); */
 /*      exit(-1); */
 /*    } */
@@ -235,12 +280,12 @@ int main(int argc, char **argv)
   FD_SET(fileno(stdin), &mask);
 
   index = 0;
-  for (;;) {
+  for(;;) {
     smask = mask;
     nfound = select(FD_SETSIZE, &smask, (fd_set *) 0, (fd_set *) 0,
 		    (struct timeval *) 0);
     if(nfound < 0) {
-      if (errno == EINTR) {
+      if(errno == EINTR) {
 	fprintf(stderr, "interrupted system call\n");
 	continue;
       }
@@ -252,38 +297,37 @@ int main(int argc, char **argv)
     if(FD_ISSET(fileno(stdin), &smask)) {
       /* data from standard in */
       int n = read(fileno(stdin), buf, sizeof(buf));
-      if (n < 0) {
+      if(n < 0) {
 	perror("could not read");
 	exit(-1);
-      } else if (n > 0) {
-	/* because commands might need parameters, lines needs to be
-	   separated which means the terminating LF must be sent */
-/* 	while(n > 0 && buf[n - 1] < 32) { */
-/* 	  n--; */
-/* 	} */
-	if(n > 0) {
-	  int i;
-	  /*	  fprintf(stderr, "SEND %d bytes\n", n);*/
-	  /* write slowly */
-	  for (i = 0; i < n; i++) {
-	    if (write(fd, &buf[i], 1) <= 0) {
-	      perror("write");
-	      exit(1);
-	    } else {
-	      fflush(NULL);
-	      usleep(delay);
-	    }
-	  }
-	}
-      } else {
-	/* End of input, exit. */
-	exit(0);
+      } else if(n > 0) {
+        int i;
+        /*	  fprintf(stderr, "SEND %d bytes\n", n);*/
+        if(mode == MODE_SLIP) {
+          write(fd, &slipend, 1);
+        }
+        /* write slowly */
+        for(i = 0; i < n; i++) {
+          if(write(fd, &buf[i], 1) <= 0) {
+            perror("write");
+            exit(1);
+          } else {
+            fflush(NULL);
+            if(delay > 0) {
+              usleep(delay);
+            }
+          }
+        }
+        if(mode == MODE_SLIP) {
+          write(fd, &slipend, 1);
+          fflush(NULL);
+        }
       }
     }
 
     if(FD_ISSET(fd, &smask)) {
-      int i, j, n = read(fd, buf, sizeof(buf));
-      if (n < 0) {
+      int i, n = read(fd, buf, sizeof(buf));
+      if(n < 0) {
 	perror("could not read");
 	exit(-1);
       }
@@ -294,13 +338,30 @@ int main(int argc, char **argv)
 	case MODE_TEXT:
 	  printf("%c", buf[i]);
 	  break;
-	case MODE_START_DATE: {
-	  time_t t;
-	  t = time(&t);
-	  strftime(outbuf, HCOLS, timeformat, localtime(&t));
-	  printf("%s|", outbuf);
-	  mode = MODE_DATE;
-	}
+	case MODE_START_DATE:
+	  if(timeformat == NULL) {
+	    struct timeval tv;
+
+	    gettimeofday(&tv, NULL);
+
+	    if(starttime) {
+	      printf("%4lu.%03lu: ",
+                     (unsigned long)(tv.tv_sec - start_tv.tv_sec),
+                     (unsigned long)(tv.tv_usec / 1000));
+	    } else {
+	      printf("%8lu.%03lu: ",
+                     (unsigned long)tv.tv_sec,
+                     (unsigned long)(tv.tv_usec / 1000));
+	    }
+
+	  } else {
+            time_t t;
+            t = time(&t);
+            strftime(outbuf, HCOLS, timeformat, localtime(&t));
+            printf("%s|", outbuf);
+          }
+          mode = MODE_DATE;
+
 	  /* continue into the MODE_DATE */
 	case MODE_DATE:
 	  printf("%c", buf[i]);
@@ -341,10 +402,16 @@ int main(int argc, char **argv)
 	  case SLIP_END:
 	    if(index > 0) {
 	      if(flags != 2 && mode != MODE_SLIP_HIDE) {
+		char *prefix = "SLIP:";
+		int n = 0;
 		/* not overflowed: show packet */
-		print_hex_line("SLIP: ", rxbuf,
-			       index > HCOLS ? HCOLS : index);
-		printf("\n");
+		do {
+		  print_hex_line(prefix, &rxbuf[n],
+				 (index - n) > HCOLS ? HCOLS : (index - n));
+		  n += HCOLS;
+		  putchar('\n');
+		  prefix = "     ";
+		} while(n < index);
 	      }
 	      lastc = '\0';
 	      index = 0;
@@ -371,7 +438,7 @@ int main(int argc, char **argv)
 	    }
 
 	    rxbuf[index++] = buf[i];
-	    if(index >= sizeof(rxbuf)) {
+	    if(index >= (int)sizeof(rxbuf)) {
 	      fprintf(stderr, "**** slip overflow\n");
 	      index = 0;
 	      flags = 2;
