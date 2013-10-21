@@ -31,7 +31,6 @@ endif
 # Define the default UART for tools and tool commands
 DEFUART = /dev/ttyUSB0
 PROG = $(CONTIKI)/tools/sensinode/nano_programmer/nano_programmer -d $(DEFUART)
-SERIALDUMP = $(CONTIKI)/tools/sky/serialdump-linux -b115200 $(DEFUART)
 
 CONTIKI_TARGET_DIRS = . dev
 CONTIKI_TARGET_MAIN = $(addprefix $(OBJECTDIR)/,contiki-sensinode-main.rel)
@@ -80,8 +79,10 @@ FORCE:
 %.upload: %.hex
 	$(PROG) -P $<
 
+include $(CONTIKI)/tools/serial/Makefile.serial
+
 sensinode.serialdump:
-	$(SERIALDUMP)
+	$(SERIALDUMP) -b115200 $(DEFUART)
 
 ### Define the CPU directory
 CONTIKI_CPU=$(CONTIKI)/cpu/cc2430

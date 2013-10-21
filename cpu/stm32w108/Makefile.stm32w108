@@ -304,11 +304,13 @@ else # MOTE
 	$(foreach PORT, $(MOTES), $(FLASHER) $(FLASHEROPTS) $< -p $(PORT);$(\n))
 endif # MOTE
 
+include $(CONTIKI)/tools/serial/Makefile.serial
+
 ifdef MOTE
-login:
+login:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 -d10000 $(USBDEVPREFIX)$(word $(MOTE), $(MOTES))
 else
-login:
+login:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 -d10000 $(USBDEVPREFIX)$(firstword $(MOTES))
 endif
 

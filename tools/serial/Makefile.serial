@@ -1,0 +1,4 @@
+SERIALDUMP := $(CONTIKI)/tools/serial/serialdump
+
+$(SERIALDUMP):	$(SERIALDUMP).c
+	(cd $(CONTIKI)/tools/serial; $(MAKE))

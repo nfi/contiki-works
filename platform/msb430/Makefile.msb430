@@ -40,7 +40,6 @@ endif
 # If we are not running under Windows, we assume Linux
 ifndef MOTELIST
   USBDEVPREFIX=
-  SERIALDUMP = $(CONTIKI)/tools/sky/serialdump-linux
   MOTELIST = $(CONTIKI)/tools/sky/motelist-linux
   MOTES = $(shell $(MOTELIST) 2>&- | grep USB | \
      cut -f 4 -d \  | \
@@ -53,22 +52,24 @@ msb-motelist:
 msb-motes:
 	@echo $(MOTES)
 
+include $(CONTIKI)/tools/serial/Makefile.serial
+
 ifdef MOTE
-serialdump:
+serialdump:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(word $(MOTE), $(CMOTES)) | $(CONTIKI)/tools/timestamp | tee serialdump-`date +%Y%m%d-%H%M`
 
-serialview:
+serialview:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(word $(MOTE), $(CMOTES)) | $(CONTIKI)/tools/timestamp
 
-login:
+login:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(word $(MOTE), $(CMOTES))
 else
-serialdump:
+serialdump:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(firstword $(CMOTES)) | $(CONTIKI)/tools/timestamp | tee serialdump-`date +%Y%m%d-%H%M`
 
-serialview:
+serialview:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(firstword $(CMOTES)) | $(CONTIKI)/tools/timestamp
 
-login:
+login:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(firstword $(CMOTES))
 endif

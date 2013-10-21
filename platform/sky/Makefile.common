@@ -38,7 +38,6 @@ NUMPAR=20
 # Check if we are running under Windows
 ifeq ($(HOST_OS),Windows)
   USBDEVPREFIX=/dev/com
-  SERIALDUMP = $(CONTIKI)/tools/sky/serialdump-windows
   MOTELIST = $(CONTIKI)/tools/sky/motelist-windows
   TMOTE_BSL_FILE = tmote-bsl
   TMOTE_BSL=$(if $(wildcard $(CONTIKI)/tools/sky/$(TMOTE_BSL_FILE).exe),1,0)
@@ -61,7 +60,6 @@ else
 ifeq ($(HOST_OS),Darwin)
   ifndef MOTELIST
     USBDEVPREFIX=
-    SERIALDUMP = $(CONTIKI)/tools/sky/serialdump-macos
     MOTELIST = $(CONTIKI)/tools/sky/motelist-macos
     TMOTE_BSL_FILE = tmote-bsl-linux
     TMOTE_BSL=$(if $(wildcard $(CONTIKI)/tools/sky/$(TMOTE_BSL_FILE)),1,0)
@@ -82,7 +80,6 @@ else
   # Else we assume Linux
   ifndef MOTELIST
     USBDEVPREFIX=
-    SERIALDUMP = $(CONTIKI)/tools/sky/serialdump-linux
     MOTELIST = $(CONTIKI)/tools/sky/motelist-linux
     TMOTE_BSL_FILE = tmote-bsl-linux
     TMOTE_BSL=$(if $(wildcard $(CONTIKI)/tools/sky/$(TMOTE_BSL_FILE)),1,0)
@@ -95,7 +92,7 @@ else
       BSL_FILETYPE = -I
     endif
     ifdef MOTEIDS
-  	  MOTES = $(foreach MOTEID, $(MOTEIDS), $(shell $(MOTELIST)  2>&- | grep $(MOTEID) | \
+	  MOTES = $(foreach MOTEID, $(MOTEIDS), $(shell $(MOTELIST)  2>&- | grep $(MOTEID) | \
           cut -f 4 -d \  | \
           perl -ne 'print $$1 . " " if(m-(/dev/[\w+\.\-]+)-);')) 
     else
@@ -177,22 +174,24 @@ linslip: $(CONTIKI)/tools/tunslip
 $(CONTIKI)/tools/tunslip:
 	(cd $(CONTIKI)/tools; $(MAKE) tunslip)
 
+include $(CONTIKI)/tools/serial/Makefile.serial
+
 ifdef MOTE
-serialdump:
+serialdump:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(word $(MOTE), $(CMOTES)) | $(CONTIKI)/tools/timestamp | tee serialdump-`date +%Y%m%d-%H%M`
 
-serialview:
+serialview:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(word $(MOTE), $(CMOTES)) | $(CONTIKI)/tools/timestamp
 
-login:
+login:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(word $(MOTE), $(CMOTES))
 else
-serialdump:
+serialdump:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(firstword $(CMOTES)) | $(CONTIKI)/tools/timestamp | tee serialdump-`date +%Y%m%d-%H%M`
 
-serialview:
+serialview:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(firstword $(CMOTES)) | $(CONTIKI)/tools/timestamp
 
-login:
+login:	$(SERIALDUMP)
 	$(SERIALDUMP) -b115200 $(USBDEVPREFIX)$(firstword $(CMOTES))
 endif

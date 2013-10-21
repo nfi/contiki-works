@@ -14,9 +14,3 @@ CONTIKI_TARGET_SOURCEFILES += $(ARCH) $(CONTIKI_TARGET_MAIN)
 
 MCU=STM32W108
 include $(CONTIKI)/cpu/stm32w108/Makefile.stm32w108
-
-SERIALDUMP = $(CONTIKI)/tools/stm32w/serialdump-linux
-
-ifeq ($(HOST_OS),Windows)
-  SERIALDUMP = $(CONTIKI)/tools/stm32w/serialdump-windows
-endif
